@@ -14,23 +14,17 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { categoryService, Category } from '../services/CategoryService';
 
 const { width } = Dimensions.get('window');
 const numColumns = 2;
-const gap = 12; // Increased gap for better spacing
+const gap = 12;
 const padding = 16;
 const itemWidth = (width - (padding * 2) - (gap * (numColumns - 1))) / numColumns;
 
-type Category = {
-  id: number;
-  name: string;
-  type: string;
-  status: number;
-};
-
 type RootStackParamList = {
   Categories: undefined;
-  Products: { categoryId: number; categoryName: string };
+  Products: { categoryId: string; categoryName: string };
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -41,62 +35,16 @@ export default function CategoriesScreen() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchCategories();
+    loadCategories();
   }, []);
 
-  const fetchCategories = async () => {
+  const loadCategories = () => {
     try {
-      const mockCategories: Category[] = [
-        { id: 1, name: 'Housing', type: 'all', status: 1 },
-        { id: 2, name: 'Battery', type: 'all', status: 1 },
-        { id: 3, name: 'Touch', type: 'all', status: 1 },
-        { id: 4, name: 'Display', type: 'all', status: 1 },
-        { id: 5, name: 'Ribbon', type: 'all', status: 1 },
-        { id: 6, name: 'Charger', type: 'all', status: 1 },
-        { id: 9, name: 'Tempered GLASS', type: 'all', status: 1 },
-        { id: 10, name: 'BACK COVERS', type: 'all', status: 1 },
-        { id: 11, name: 'BOOK POUCH', type: 'all', status: 1 },
-        { id: 12, name: 'POWER BANK', type: 'all', status: 1 },
-        { id: 13, name: 'HANDS FREE', type: 'all', status: 1 },
-        { id: 15, name: 'OTHERS', type: 'all', status: 1 },
-        { id: 16, name: 'PEN DRIVE', type: 'all', status: 1 },
-        { id: 17, name: 'CABLE', type: 'all', status: 1 },
-        { id: 18, name: 'CCTV', type: 'all', status: 1 },
-        { id: 19, name: 'TOOL', type: 'all', status: 1 },
-        { id: 20, name: 'GOLD BACK COVER', type: 'all', status: 1 },
-        { id: 21, name: 'BACK COVER DESIGN', type: 'all', status: 1 },
-        { id: 22, name: 'CHARGIN PIN', type: 'all', status: 1 },
-        { id: 23, name: 'IC', type: 'all', status: 1 },
-        { id: 24, name: 'SPEAKER MIC', type: 'all', status: 1 },
-        { id: 25, name: 'BATTERY PIN', type: 'all', status: 1 },
-        { id: 26, name: 'MIC', type: 'all', status: 1 },
-        { id: 27, name: 'RINGER', type: 'all', status: 1 },
-        { id: 28, name: 'SIM CONECTOR', type: 'all', status: 1 },
-        { id: 29, name: 'MMC', type: 'all', status: 1 },
-        { id: 30, name: 'SWITCH', type: 'all', status: 1 },
-        { id: 31, name: 'GOLD TEMPED GLASS', type: 'all', status: 1 },
-        { id: 32, name: 'OMS', type: 'all', status: 1 },
-        { id: 33, name: 'COPY TOUCH', type: 'all', status: 1 },
-        { id: 34, name: 'MICKY MOUSE BC', type: 'all', status: 1 },
-        { id: 35, name: 'FULL TEMPED GLASS', type: 'all', status: 1 },
-        { id: 36, name: '5D TEMPED GLASS', type: 'all', status: 1 },
-        { id: 37, name: 'AKEKIO', type: 'all', status: 1 },
-        { id: 38, name: 'PRIVACY GLASS', type: 'all', status: 1 },
-        { id: 39, name: 'ONESAM', type: 'all', status: 1 },
-        { id: 40, name: 'OG TEMPED GLASS', type: 'all', status: 1 },
-        { id: 41, name: 'SIM TRAY', type: 'all', status: 1 },
-        { id: 42, name: 'ON OFF FLEX', type: 'all', status: 1 },
-        { id: 43, name: 'CHARGIN FLEX / PCB', type: 'all', status: 1 },
-        { id: 44, name: '18D TEMPED GLASS', type: 'all', status: 1 },
-        { id: 45, name: '100D TEMPED GLASS', type: 'all', status: 1 },
-        { id: 46, name: 'BATTERY BACKCOVER', type: 'all', status: 1 },
-        { id: 47, name: 'MATTE TEMPED GLASS', type: 'all', status: 1 },
-        { id: 48, name: 'SUPER A+ GLASS', type: 'all', status: 1 },
-      ];
-      
-      setCategories(mockCategories);
+      // Initialize categories from the service
+      const cats = categoryService.getCategories();
+      setCategories(cats);
     } catch (error) {
-      console.error('Error fetching categories:', error);
+      console.error('Error loading categories:', error);
     } finally {
       setLoading(false);
     }
@@ -104,33 +52,33 @@ export default function CategoriesScreen() {
 
   const handleCategoryPress = (category: Category) => {
     navigation.navigate('Products', { 
-      categoryId: category.id, 
+      categoryId: category.id.toString(), 
       categoryName: category.name 
     });
   };
 
   const getIcon = (name: string): keyof typeof Ionicons.glyphMap => {
     const iconMap: Record<string, keyof typeof Ionicons.glyphMap> = {
-      'Battery': 'battery-full-outline',
-      'Charger': 'flash-outline',
-      'Display': 'desktop-outline',
-      'Touch': 'hand-left-outline',
       'Housing': 'phone-portrait-outline',
-      'CABLE': 'git-compare-outline',
+      'Battery': 'battery-full-outline',
+      'Touch': 'hand-left-outline',
+      'Display': 'desktop-outline',
+      'Ribbon': 'ribbon-outline',
+      'Charger': 'flash-outline',
+      'Tempered GLASS': 'shield-checkmark-outline',
+      'BACK COVERS': 'phone-portrait-outline',
+      'BOOK POUCH': 'book-outline',
       'POWER BANK': 'battery-full-outline',
       'HANDS FREE': 'headset-outline',
-      'BACK COVERS': 'phone-portrait-outline',
-      'Tempered GLASS': 'shield-checkmark-outline',
-      'CCTV': 'camera-outline',
-      'PEN DRIVE': 'save-outline',
-      'TOOL': 'construct-outline',
-      'IC': 'hardware-chip-outline',
-      'SIM TRAY': 'phone-portrait-outline',
       'OTHERS': 'grid-outline',
-      'BOOK POUCH': 'book-outline',
+      'PEN DRIVE': 'save-outline',
+      'CABLE': 'git-compare-outline',
+      'CCTV': 'camera-outline',
+      'TOOL': 'construct-outline',
       'GOLD BACK COVER': 'star-outline',
       'BACK COVER DESIGN': 'color-palette-outline',
       'CHARGIN PIN': 'flash-outline',
+      'IC': 'hardware-chip-outline',
       'SPEAKER MIC': 'volume-high-outline',
       'BATTERY PIN': 'battery-half-outline',
       'MIC': 'mic-outline',
@@ -148,6 +96,7 @@ export default function CategoriesScreen() {
       'PRIVACY GLASS': 'eye-off-outline',
       'ONESAM': 'phone-portrait-outline',
       'OG TEMPED GLASS': 'shield-checkmark-outline',
+      'SIM TRAY': 'phone-portrait-outline',
       'ON OFF FLEX': 'power-outline',
       'CHARGIN FLEX / PCB': 'flash-outline',
       '18D TEMPED GLASS': 'shield-checkmark-outline',
@@ -155,7 +104,6 @@ export default function CategoriesScreen() {
       'BATTERY BACKCOVER': 'battery-full-outline',
       'MATTE TEMPED GLASS': 'shield-checkmark-outline',
       'SUPER A+ GLASS': 'shield-checkmark-outline',
-      'Ribbon': 'ribbon-outline',
     };
     return iconMap[name] || 'apps-outline';
   };
@@ -193,7 +141,6 @@ export default function CategoriesScreen() {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={28} color="#1a1a1a" />
