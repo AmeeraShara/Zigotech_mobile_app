@@ -18,18 +18,6 @@ import { categoryService, Product } from '../services/CategoryService';
 
 // API Configuration - Hardcoded
 const API_BASE_URL = 'http://localhost:8001/index.php';
-const API_KEY = '2044def760224bac37860a5fab48052b1076b05865d8dfedf281155fce5ce48f';
-
-type ApiResponse = {
-  success: boolean;
-  count?: number;
-  data?: Product[];
-  message?: string;
-  total?: number;
-  page?: number;
-  limit?: number;
-  pages?: number;
-};
 
 export default function ProductsScreen() {
   const route = useRoute();
@@ -51,43 +39,13 @@ export default function ProductsScreen() {
     try {
       setLoading(true);
       
-      // Fetch all products
-      const params = new URLSearchParams({
-        components: 'api',
-        action: 'fetch_inventory_items',
-        api_key: API_KEY,
-        page: '1',
-        limit: '100',
-        type: '1',
-        category: 'all',
-        store: 'all',
-        sub_system: '0'
-      });
-
-      const url = `${API_BASE_URL}?${params.toString()}`;
-      console.log('Fetching products from:', url);
-
-      const response = await fetch(url);
-      const data: ApiResponse = await response.json();
-
-      console.log('API Response:', data);
-
-      if (data.success && data.data) {
-        // Filter products by category ID
-        const filteredProducts = categoryService.filterProductsByCategory(
-          data.data, 
-          categoryId
-        );
-        
-        console.log(`Found ${filteredProducts.length} products for category ${categoryName}`);
-        setProducts(filteredProducts);
-      } else {
-        Alert.alert('Error', data.message || 'Failed to fetch products');
-        setProducts([]);
-      }
+      const filteredProducts = await categoryService.getProductsByCategory(categoryId);
+      
+      console.log(`Found ${filteredProducts.length} products for category ${categoryName} (ID: ${categoryId})`);
+      setProducts(filteredProducts);
     } catch (error) {
       console.error('Error fetching products:', error);
-      Alert.alert('Error', 'Failed to connect to server');
+      Alert.alert('Error', 'Failed to fetch products');
       setProducts([]);
     } finally {
       setLoading(false);
@@ -102,7 +60,7 @@ export default function ProductsScreen() {
 
   const renderProduct = ({ item }: { item: Product }) => {
     // Get category name from ID
-    const categoryName = categoryService.getCategoryName(item.category);
+    const categoryName = categoryService.getCategoryName(item.category_id);
     
     return (
       <TouchableOpacity style={styles.productCard}>
@@ -121,18 +79,23 @@ export default function ProductsScreen() {
         </View>
         <View style={styles.productInfo}>
           <Text style={styles.productCode} numberOfLines={1}>
-            {item.product_code}
+            {item.code}
           </Text>
           <Text style={styles.productName} numberOfLines={2}>
-            {item.description || item.product_code}
+            {item.description || item.code}
           </Text>
           <Text style={styles.productPrice}>
-            ${parseFloat(item.default_price || '0').toFixed(2)}
+            ${parseFloat(item.r_price?.toString() || '0').toFixed(2)}
           </Text>
           <View style={styles.productMeta}>
             <View style={styles.categoryTag}>
               <Text style={styles.categoryTagText}>{categoryName}</Text>
             </View>
+            {item.qty && parseInt(item.qty.toString()) > 0 && (
+              <View style={styles.stockTag}>
+                <Text style={styles.stockTagText}>In Stock: {item.qty}</Text>
+              </View>
+            )}
           </View>
         </View>
       </TouchableOpacity>
@@ -186,7 +149,7 @@ export default function ProductsScreen() {
         <FlatList
           data={products}
           renderItem={renderProduct}
-          keyExtractor={(item) => item.id.toString()}
+          keyExtractor={(item) => item.id?.toString() || item.code}
           numColumns={2}
           columnWrapperStyle={styles.columnWrapper}
           contentContainerStyle={styles.listContent}
@@ -299,6 +262,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: 4,
+    flexWrap: 'wrap',
   },
   categoryTag: {
     backgroundColor: '#FEE2E2',
@@ -309,6 +273,17 @@ const styles = StyleSheet.create({
   categoryTagText: {
     fontSize: 10,
     color: '#DC2626',
+    fontWeight: '600',
+  },
+  stockTag: {
+    backgroundColor: '#D1FAE5',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  stockTagText: {
+    fontSize: 10,
+    color: '#065F46',
     fontWeight: '600',
   },
   emptyContainer: {

@@ -8,15 +8,21 @@ export type Category = {
 };
 
 export type Product = {
-  id: number;
-  product_code: string;
+  id: number | string;
+  code: string;
   description: string;
-  default_price: string;
-  default_cost: string;
-  category: string; // This is the category ID from database
-  image_path: string | null;
-  created_at: string;
-  updated_at: string;
+  category_id: string;  // Changed from 'category'
+  category_name: string; // Added this
+  cost: string | number;
+  w_price: string | number;
+  r_price: string | number;
+  qty: string | number;
+  color: string;
+  store_name: string;
+  drawer_no: string;
+  image_path?: string | null;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type ApiResponse = {
@@ -28,6 +34,7 @@ export type ApiResponse = {
   page?: number;
   limit?: number;
   pages?: number;
+  has_more?: boolean;
 };
 
 // API Configuration - Hardcoded
@@ -52,7 +59,6 @@ class CategoryService {
    * Initialize categories from your SQL data
    */
   public initializeCategories(): void {
-    // These are from your item_category table
     this.categories = [
       { id: 1, name: 'Housing', type: 'all', status: 1 },
       { id: 2, name: 'Battery', type: 'all', status: 1 },
@@ -101,7 +107,6 @@ class CategoryService {
       { id: 48, name: 'SUPER A+ GLASS', type: 'all', status: 1 },
     ];
 
-    // Build map for quick lookup
     this.categories.forEach(cat => {
       this.categoryMap.set(cat.id.toString(), cat);
     });
@@ -133,29 +138,13 @@ class CategoryService {
   }
 
   /**
-   * Get products by category ID
+   * Get products by category ID - FIXED to use category_id
    */
   public filterProductsByCategory(products: Product[], categoryId: string): Product[] {
     return products.filter(product => {
-      const productCategory = product.category?.toString() || '';
-      return productCategory === categoryId;
+      const productCategoryId = product.category_id?.toString() || '';
+      return productCategoryId === categoryId;
     });
-  }
-
-  /**
-   * Get products by category name
-   */
-  public filterProductsByCategoryName(products: Product[], categoryName: string): Product[] {
-    const category = this.categories.find(
-      cat => cat.name.toLowerCase() === categoryName.toLowerCase()
-    );
-    
-    if (!category) {
-      console.log(`Category "${categoryName}" not found`);
-      return [];
-    }
-
-    return this.filterProductsByCategory(products, category.id.toString());
   }
 
   /**
@@ -196,7 +185,9 @@ class CategoryService {
    */
   public async getProductsByCategory(categoryId: string): Promise<Product[]> {
     const allProducts = await this.fetchProducts();
-    return this.filterProductsByCategory(allProducts, categoryId);
+    const filtered = this.filterProductsByCategory(allProducts, categoryId);
+    console.log(`Found ${filtered.length} products for category ID ${categoryId}`);
+    return filtered;
   }
 }
 
