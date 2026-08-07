@@ -135,7 +135,7 @@ export default function ProductsScreen() {
   const navigateToCart = () => {
     Alert.alert(
       'Cart Summary',
-      `Total Items: ${getTotalItems()}\nTotal Price: $${getTotalPrice().toFixed(2)}\n\nItems: ${cartItems.map(item => 
+      `Total Items: ${getTotalItems()}\nTotal Price: RS. ${getTotalPrice().toFixed(2)}\n\nItems: ${cartItems.map(item => 
         `${item.product.description || item.product.code} x${item.quantity}`
       ).join('\n')}`
     );
@@ -182,7 +182,7 @@ export default function ProductsScreen() {
             {item.description || item.code}
           </Text>
           <Text style={styles.productPrice}>
-            ${parseFloat(item.r_price?.toString() || '0').toFixed(2)}
+            RS. {parseFloat(item.r_price?.toString() || '0').toFixed(2)}
           </Text>
           
           <View style={styles.productMeta}>

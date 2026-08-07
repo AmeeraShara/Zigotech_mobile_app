@@ -11,8 +11,8 @@ export type Product = {
   id: number | string;
   code: string;
   description: string;
-  category_id: string;  // Changed from 'category'
-  category_name: string; // Added this
+  category_id: string;  
+  category_name: string;
   cost: string | number;
   w_price: string | number;
   r_price: string | number;
