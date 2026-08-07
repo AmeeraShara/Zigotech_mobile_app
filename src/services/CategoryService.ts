@@ -165,7 +165,6 @@ class CategoryService {
       });
 
       const url = `${API_BASE_URL}?${params.toString()}`;
-      console.log('Fetching products from:', url);
 
       const response = await fetch(url);
       const data: ApiResponse = await response.json();
