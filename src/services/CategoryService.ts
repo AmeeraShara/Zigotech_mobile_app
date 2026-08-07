@@ -186,7 +186,6 @@ class CategoryService {
   public async getProductsByCategory(categoryId: string): Promise<Product[]> {
     const allProducts = await this.fetchProducts();
     const filtered = this.filterProductsByCategory(allProducts, categoryId);
-    console.log(`Found ${filtered.length} products for category ID ${categoryId}`);
     return filtered;
   }
 }

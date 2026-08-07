@@ -43,7 +43,6 @@ export default function ProductsScreen() {
       
       const filteredProducts = await categoryService.getProductsByCategory(categoryId);
       
-      console.log(`Found ${filteredProducts.length} products for category ${categoryName} (ID: ${categoryId})`);
       setProducts(filteredProducts);
       
       // Initialize quantities for each product
