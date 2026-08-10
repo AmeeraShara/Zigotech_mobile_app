@@ -20,6 +20,7 @@ import { categoryService, Product, PaginatedProducts } from '../services/Categor
 
 // API Configuration - Hardcoded
 const API_BASE_URL = 'http://localhost:8002/index.php';
+const API_KEY = '2044def760224bac37860a5fab48052b1076b05865d8dfedf281155fce5ce48f';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -36,6 +37,7 @@ export default function ProductsScreen() {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [quantities, setQuantities] = useState<{[key: string]: number}>({});
   const [cartItems, setCartItems] = useState<{product: Product, quantity: number}[]>([]);
   
@@ -51,13 +53,16 @@ export default function ProductsScreen() {
   const [isSearching, setIsSearching] = useState(false);
   const [suggestions, setSuggestions] = useState<Product[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [searchResults, setSearchResults] = useState<Product[]>([]);
   const searchInputRef = useRef<TextInput>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     // Reset states when category changes
     setProducts([]);
     setFilteredProducts([]);
     setAllProducts([]);
+    setSearchResults([]);
     setCurrentPage(1);
     setHasMore(true);
     setTotalPages(0);
@@ -135,6 +140,7 @@ export default function ProductsScreen() {
     setAllProducts([]);
     setProducts([]);
     setFilteredProducts([]);
+    setSearchResults([]);
     setCurrentPage(1);
     setHasMore(true);
     setTotalPages(0);
@@ -149,50 +155,106 @@ export default function ProductsScreen() {
     }
   };
 
-  // Search function
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
-    
-    if (query.trim() === '') {
+  // Search across ALL products from API
+  const searchProducts = async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
       setFilteredProducts(allProducts);
       setSuggestions([]);
       setShowSuggestions(false);
       return;
     }
 
-    const searchTerm = query.toLowerCase().trim();
+    setSearchLoading(true);
     
-    // Filter products based on search query from all products
-    const filtered = allProducts.filter((product: Product) => {
-      const code = product.code?.toLowerCase() || '';
-      const description = product.description?.toLowerCase() || '';
-      const category = categoryService.getCategoryName(product.category_id)?.toLowerCase() || '';
-      
-      return code.includes(searchTerm) || 
-             description.includes(searchTerm) || 
-             category.includes(searchTerm);
-    });
+    try {
+      // Search across all products using the API
+      const params = new URLSearchParams({
+        components: 'api',
+        action: 'fetch_inventory_items',
+        api_key: API_KEY,
+        page: '1',
+        limit: '1000', // Get all products for search
+        type: '1',
+        category: categoryId,
+        store: 'all',
+        sub_system: '0'
+      });
 
-    setFilteredProducts(filtered);
+      const url = `${API_BASE_URL}?${params.toString()}`;
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (data.success && data.data) {
+        const allApiProducts = data.data;
+        
+        // Filter by search query
+        const searchTerm = query.toLowerCase().trim();
+        const filtered = allApiProducts.filter((product: Product) => {
+          const code = product.code?.toLowerCase() || '';
+          const description = product.description?.toLowerCase() || '';
+          const category = categoryService.getCategoryName(product.category_id)?.toLowerCase() || '';
+          
+          return code.includes(searchTerm) || 
+                 description.includes(searchTerm) || 
+                 category.includes(searchTerm);
+        });
+
+        setSearchResults(filtered);
+        setFilteredProducts(filtered);
+        
+        // Generate suggestions (top 5 matches)
+        const suggestionList = filtered.slice(0, 5);
+        setSuggestions(suggestionList);
+        setShowSuggestions(query.length > 0 && suggestionList.length > 0);
+      }
+    } catch (error) {
+      console.error('Error searching products:', error);
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  // Search function with debounce
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
     
-    // Generate suggestions (top 5 matches)
-    const suggestionList = filtered.slice(0, 5);
-    setSuggestions(suggestionList);
-    setShowSuggestions(query.length > 0 && suggestionList.length > 0);
+    // Clear previous timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (query.trim() === '') {
+      setSearchResults([]);
+      setFilteredProducts(allProducts);
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    // Debounce search to avoid too many API calls
+    searchTimeoutRef.current = setTimeout(() => {
+      searchProducts(query);
+    }, 500);
   };
 
   const handleSuggestionPress = (product: Product) => {
     setSearchQuery(product.code || product.description || '');
     setFilteredProducts([product]);
+    setSearchResults([product]);
     setShowSuggestions(false);
     Keyboard.dismiss();
   };
 
   const clearSearch = () => {
     setSearchQuery('');
+    setSearchResults([]);
     setFilteredProducts(allProducts);
     setSuggestions([]);
     setShowSuggestions(false);
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
     searchInputRef.current?.focus();
   };
 
@@ -270,7 +332,16 @@ export default function ProductsScreen() {
     );
   };
 
-  const renderProduct = ({ item }: { item: Product }) => {
+  // Generate a unique key for each product
+  const getProductKey = (product: Product, index: number): string => {
+    // Use id if available, otherwise fallback to code + index
+    if (product.id) {
+      return `product-${product.id}`;
+    }
+    return `product-${product.code || 'unknown'}-${index}`;
+  };
+
+  const renderProduct = ({ item, index }: { item: Product; index: number }) => {
     const categoryName = categoryService.getCategoryName(item.category_id);
     const productId = item.id ? String(item.id) : '';
     const quantity = productId ? (quantities[productId] || 1) : 1;
@@ -382,7 +453,7 @@ export default function ProductsScreen() {
     );
   };
 
-  const renderSuggestion = ({ item }: { item: Product }) => (
+  const renderSuggestion = ({ item, index }: { item: Product; index: number }) => (
     <TouchableOpacity 
       style={styles.suggestionItem}
       onPress={() => handleSuggestionPress(item)}
@@ -433,7 +504,7 @@ export default function ProductsScreen() {
               View More 
             </Text>
           </View>
-
+ 
         </TouchableOpacity>
       );
     }
@@ -509,7 +580,10 @@ export default function ProductsScreen() {
               setTimeout(() => setShowSuggestions(false), 300);
             }}
           />
-          {searchQuery.length > 0 && (
+          {searchLoading && (
+            <ActivityIndicator size="small" color="#DC2626" style={styles.searchLoader} />
+          )}
+          {searchQuery.length > 0 && !searchLoading && (
             <TouchableOpacity 
               onPress={clearSearch} 
               style={styles.clearButton}
@@ -526,7 +600,7 @@ export default function ProductsScreen() {
             <FlatList
               data={suggestions}
               renderItem={renderSuggestion}
-              keyExtractor={(item) => item.id?.toString() || Math.random().toString()}
+              keyExtractor={(item, index) => getProductKey(item, index)}
               style={styles.suggestionsList}
               keyboardShouldPersistTaps="always"
             />
@@ -599,7 +673,7 @@ export default function ProductsScreen() {
         <FlatList
           data={filteredProducts}
           renderItem={renderProduct}
-          keyExtractor={(item) => item.id?.toString() || item.code}
+          keyExtractor={(item, index) => getProductKey(item, index)}
           numColumns={2}
           columnWrapperStyle={styles.columnWrapper}
           contentContainerStyle={styles.listContent}
@@ -685,6 +759,9 @@ const styles = StyleSheet.create({
     color: '#1a1a1a',
     paddingVertical: 8,
     paddingHorizontal: 0,
+  },
+  searchLoader: {
+    marginRight: 8,
   },
   clearButton: {
     padding: 4,
