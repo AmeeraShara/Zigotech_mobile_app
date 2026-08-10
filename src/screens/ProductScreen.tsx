@@ -16,10 +16,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation } from '@react-navigation/native';
-import { categoryService, Product } from '../services/CategoryService';
+import { categoryService, Product, PaginatedProducts } from '../services/CategoryService';
 
 // API Configuration - Hardcoded
 const API_BASE_URL = 'http://localhost:8002/index.php';
+
+const ITEMS_PER_PAGE = 10;
 
 export default function ProductsScreen() {
   const route = useRoute();
@@ -31,10 +33,18 @@ export default function ProductsScreen() {
   
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [quantities, setQuantities] = useState<{[key: string]: number}>({});
   const [cartItems, setCartItems] = useState<{product: Product, quantity: number}[]>([]);
+  
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
   
   // Search states
   const [searchQuery, setSearchQuery] = useState('');
@@ -44,40 +54,99 @@ export default function ProductsScreen() {
   const searchInputRef = useRef<TextInput>(null);
 
   useEffect(() => {
-    fetchProductsByCategory();
+    // Reset states when category changes
+    setProducts([]);
+    setFilteredProducts([]);
+    setAllProducts([]);
+    setCurrentPage(1);
+    setHasMore(true);
+    setTotalPages(0);
+    setTotalItems(0);
+    fetchProductsByCategory(1, true);
   }, [categoryId]);
 
-  const fetchProductsByCategory = async () => {
+  const fetchProductsByCategory = async (page: number = 1, reset: boolean = false) => {
     try {
-      setLoading(true);
+      if (reset) {
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+      }
       
-      const filteredProducts = await categoryService.getProductsByCategory(categoryId);
+      const result: PaginatedProducts = await categoryService.getProductsByCategory(
+        categoryId, 
+        page, 
+        ITEMS_PER_PAGE
+      );
       
-      setProducts(filteredProducts);
-      setFilteredProducts(filteredProducts);
+      const { products: newProducts, total, pages, hasMore: more } = result;
       
-      // Initialize quantities for each product
-      const initialQuantities: {[key: string]: number} = {};
-      filteredProducts.forEach(product => {
-        if (product.id) {
-          initialQuantities[String(product.id)] = 1;
+      setTotalPages(pages);
+      setHasMore(more);
+      setTotalItems(total);
+      
+      if (reset) {
+        setAllProducts(newProducts);
+        setProducts(newProducts);
+        setFilteredProducts(newProducts);
+        
+        // Initialize quantities for each product
+        const initialQuantities: {[key: string]: number} = {};
+        newProducts.forEach((product: Product) => {
+          if (product.id) {
+            initialQuantities[String(product.id)] = 1;
+          }
+        });
+        setQuantities(initialQuantities);
+      } else {
+        // Append new products to existing ones
+        const updatedProducts = [...allProducts, ...newProducts];
+        setAllProducts(updatedProducts);
+        setProducts(updatedProducts);
+        
+        // Update filtered products if not searching
+        if (!searchQuery.trim()) {
+          setFilteredProducts(updatedProducts);
         }
-      });
-      setQuantities(initialQuantities);
+        
+        // Add quantities for new products
+        const newQuantities = { ...quantities };
+        newProducts.forEach((product: Product) => {
+          if (product.id && !newQuantities[String(product.id)]) {
+            newQuantities[String(product.id)] = 1;
+          }
+        });
+        setQuantities(newQuantities);
+      }
+      
+      setCurrentPage(page);
     } catch (error) {
       console.error('Error fetching products:', error);
       Alert.alert('Error', 'Failed to fetch products');
-      setProducts([]);
-      setFilteredProducts([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setLoadingMore(false);
     }
   };
 
   const handleRefresh = () => {
     setRefreshing(true);
-    fetchProductsByCategory();
+    setAllProducts([]);
+    setProducts([]);
+    setFilteredProducts([]);
+    setCurrentPage(1);
+    setHasMore(true);
+    setTotalPages(0);
+    fetchProductsByCategory(1, true);
+  };
+
+  // Load more products with "View More" button
+  const loadMoreProducts = () => {
+    if (!loadingMore && hasMore && !searchQuery.trim()) {
+      const nextPage = currentPage + 1;
+      fetchProductsByCategory(nextPage, false);
+    }
   };
 
   // Search function
@@ -85,7 +154,7 @@ export default function ProductsScreen() {
     setSearchQuery(query);
     
     if (query.trim() === '') {
-      setFilteredProducts(products);
+      setFilteredProducts(allProducts);
       setSuggestions([]);
       setShowSuggestions(false);
       return;
@@ -93,8 +162,8 @@ export default function ProductsScreen() {
 
     const searchTerm = query.toLowerCase().trim();
     
-    // Filter products based on search query
-    const filtered = products.filter(product => {
+    // Filter products based on search query from all products
+    const filtered = allProducts.filter((product: Product) => {
       const code = product.code?.toLowerCase() || '';
       const description = product.description?.toLowerCase() || '';
       const category = categoryService.getCategoryName(product.category_id)?.toLowerCase() || '';
@@ -121,7 +190,7 @@ export default function ProductsScreen() {
 
   const clearSearch = () => {
     setSearchQuery('');
-    setFilteredProducts(products);
+    setFilteredProducts(allProducts);
     setSuggestions([]);
     setShowSuggestions(false);
     searchInputRef.current?.focus();
@@ -133,7 +202,7 @@ export default function ProductsScreen() {
       const newQty = Math.max(1, currentQty + change);
       
       // Find the product to check stock limit
-      const product = products.find(p => String(p.id) === productId);
+      const product = allProducts.find((p: Product) => String(p.id) === productId);
       if (product && product.qty) {
         const maxStock = parseInt(product.qty.toString());
         if (newQty > maxStock) {
@@ -153,12 +222,14 @@ export default function ProductsScreen() {
     const quantity = quantities[productId] || 1;
     
     // Check if product already in cart
-    const existingItem = cartItems.find(item => String(item.product.id) === productId);
+    const existingItem = cartItems.find((item: {product: Product, quantity: number}) => 
+      String(item.product.id) === productId
+    );
     
     if (existingItem) {
       // Update quantity if product already in cart
       setCartItems(prevItems => 
-        prevItems.map(item => 
+        prevItems.map((item: {product: Product, quantity: number}) => 
           String(item.product.id) === productId 
             ? { ...item, quantity: item.quantity + quantity }
             : item
@@ -180,11 +251,11 @@ export default function ProductsScreen() {
   };
 
   const getTotalItems = () => {
-    return cartItems.reduce((sum, item) => sum + item.quantity, 0);
+    return cartItems.reduce((sum: number, item: {product: Product, quantity: number}) => sum + item.quantity, 0);
   };
 
   const getTotalPrice = () => {
-    return cartItems.reduce((sum, item) => {
+    return cartItems.reduce((sum: number, item: {product: Product, quantity: number}) => {
       const price = parseFloat(item.product.r_price?.toString() || '0');
       return sum + (price * item.quantity);
     }, 0);
@@ -193,7 +264,7 @@ export default function ProductsScreen() {
   const navigateToCart = () => {
     Alert.alert(
       'Cart Summary',
-      `Total Items: ${getTotalItems()}\nTotal Price: RS. ${getTotalPrice().toFixed(2)}\n\nItems: ${cartItems.map(item => 
+      `Total Items: ${getTotalItems()}\nTotal Price: RS. ${getTotalPrice().toFixed(2)}\n\nItems: ${cartItems.map((item: {product: Product, quantity: number}) => 
         `${item.product.description || item.product.code} x${item.quantity}`
       ).join('\n')}`
     );
@@ -203,7 +274,9 @@ export default function ProductsScreen() {
     const categoryName = categoryService.getCategoryName(item.category_id);
     const productId = item.id ? String(item.id) : '';
     const quantity = productId ? (quantities[productId] || 1) : 1;
-    const isInCart = cartItems.some(cartItem => String(cartItem.product.id) === productId);
+    const isInCart = cartItems.some((cartItem: {product: Product, quantity: number}) => 
+      String(cartItem.product.id) === productId
+    );
     const maxStock = item.qty ? parseInt(item.qty.toString()) : 0;
     
     return (
@@ -326,7 +399,63 @@ export default function ProductsScreen() {
     </TouchableOpacity>
   );
 
-  if (loading) {
+  // "View More" button footer
+  const renderFooter = () => {
+    // Don't show footer when searching
+    if (searchQuery.trim()) {
+      return null;
+    }
+
+    // If loading more, show loading indicator
+    if (loadingMore) {
+      return (
+        <View style={styles.footerContainer}>
+          <ActivityIndicator size="large" color="#DC2626" />
+          <Text style={styles.footerText}>Loading more products...</Text>
+        </View>
+      );
+    }
+
+    // If there are more products to load, show "View More" button
+    if (hasMore) {
+      const loadedCount = allProducts.length;
+      const remainingCount = totalItems - loadedCount;
+      
+      return (
+        <TouchableOpacity 
+          style={styles.viewMoreButton}
+          onPress={loadMoreProducts}
+          activeOpacity={0.8}
+        >
+          <View style={styles.viewMoreContent}>
+            <Ionicons name="chevron-down-circle" size={24} color="#DC2626" />
+            <Text style={styles.viewMoreText}>
+              View More 
+            </Text>
+          </View>
+
+        </TouchableOpacity>
+      );
+    }
+
+    // If all products are loaded
+    if (totalItems > 0) {
+      return (
+        <View style={styles.footerContainer}>
+          <View style={styles.allLoadedContainer}>
+            <Ionicons name="checkmark-circle" size={24} color="#22C55E" />
+            <Text style={styles.allLoadedText}>
+              All {totalItems} products loaded
+            </Text>
+          </View>
+        </View>
+      );
+    }
+
+    return null;
+  };
+
+  if (loading && products.length === 0) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#DC2626" />
@@ -359,7 +488,7 @@ export default function ProductsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Search Bar - With X button inside */}
+      {/* Search Bar */}
       <View style={styles.searchContainer}>
         <View style={styles.searchBar}>
           <Ionicons name="search-outline" size={20} color="#666" style={styles.searchIcon} />
@@ -432,6 +561,11 @@ export default function ProductsScreen() {
             {cartItems.length} items in cart
           </Text>
         )}
+        {!searchQuery.trim() && totalPages > 0 && (
+          <Text style={styles.pageInfo}>
+            Page {currentPage} 
+          </Text>
+        )}
       </View>
 
       {filteredProducts.length === 0 ? (
@@ -472,17 +606,8 @@ export default function ProductsScreen() {
           showsVerticalScrollIndicator={false}
           refreshing={refreshing}
           onRefresh={handleRefresh}
-          ListFooterComponent={
-            searchQuery.length > 0 && filteredProducts.length > 0 ? (
-              <TouchableOpacity 
-                style={styles.clearSearchFooter}
-                onPress={clearSearch}
-              >
-                <Ionicons name="close-circle" size={16} color="#666" />
-                <Text style={styles.clearSearchText}>Clear search</Text>
-              </TouchableOpacity>
-            ) : null
-          }
+          ListFooterComponent={renderFooter}
+          ListFooterComponentStyle={styles.footerContainer}
         />
       )}
     </SafeAreaView>
@@ -534,7 +659,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: 'bold',
   },
-  // Search styles
   searchContainer: {
     backgroundColor: '#fff',
     paddingHorizontal: 16,
@@ -643,6 +767,11 @@ const styles = StyleSheet.create({
     color: '#DC2626',
     fontWeight: '600',
   },
+  pageInfo: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -656,6 +785,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: 12,
+    paddingBottom: 20,
   },
   columnWrapper: {
     justifyContent: 'space-between',
@@ -829,15 +959,50 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 16,
   },
-  clearSearchFooter: {
+  footerContainer: {
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+  },
+  viewMoreButton: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E5E5',
+    marginVertical: 8,
+  },
+  viewMoreContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  viewMoreText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#DC2626',
+  },
+  viewMoreSubText: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 4,
+  },
+  allLoadedContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
     gap: 8,
+    paddingVertical: 12,
   },
-  clearSearchText: {
-    color: '#666',
+  allLoadedText: {
     fontSize: 14,
+    color: '#22C55E',
+    fontWeight: '500',
+  },
+  footerText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 8,
   },
 });

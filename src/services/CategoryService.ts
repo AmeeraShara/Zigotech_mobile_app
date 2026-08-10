@@ -37,6 +37,14 @@ export type ApiResponse = {
   has_more?: boolean;
 };
 
+// NEW TYPE FOR PAGINATED RESPONSE
+export type PaginatedProducts = {
+  products: Product[];
+  total: number;
+  pages: number;
+  hasMore: boolean;
+};
+
 // API Configuration - Hardcoded
 const API_BASE_URL = 'http://localhost:8002/index.php';
 const API_KEY = '2044def760224bac37860a5fab48052b1076b05865d8dfedf281155fce5ce48f';
@@ -138,28 +146,23 @@ class CategoryService {
   }
 
   /**
-   * Get products by category ID - FIXED to use category_id
+   * Get products by category ID with pagination
+   * THIS METHOD NOW RETURNS PaginatedProducts, NOT Product[]
    */
-  public filterProductsByCategory(products: Product[], categoryId: string): Product[] {
-    return products.filter(product => {
-      const productCategoryId = product.category_id?.toString() || '';
-      return productCategoryId === categoryId;
-    });
-  }
-
-  /**
-   * Fetch products from API
-   */
-  public async fetchProducts(): Promise<Product[]> {
+  public async getProductsByCategory(
+    categoryId: string, 
+    page: number = 1, 
+    limit: number = 10
+  ): Promise<PaginatedProducts> {
     try {
       const params = new URLSearchParams({
         components: 'api',
         action: 'fetch_inventory_items',
         api_key: API_KEY,
-        page: '1',
-        limit: '100',
+        page: page.toString(),
+        limit: limit.toString(),
         type: '1',
-        category: 'all',
+        category: categoryId,
         store: 'all',
         sub_system: '0'
       });
@@ -170,49 +173,30 @@ class CategoryService {
       const data: ApiResponse = await response.json();
 
       if (data.success && data.data) {
-        return data.data;
+        return {
+          products: data.data,
+          total: data.total || 0,
+          pages: data.pages || 1,
+          hasMore: data.has_more || false
+        };
       }
-      return [];
+      
+      return { products: [], total: 0, pages: 1, hasMore: false };
     } catch (error) {
-      console.error('Error fetching products:', error);
-      return [];
+      console.error('Error fetching products from billing system:', error);
+      return { products: [], total: 0, pages: 1, hasMore: false };
     }
   }
 
   /**
-   * Get products by category ID from API
+   * Filter products by category (client-side)
    */
-// In CategoryService.ts - add this method
-public async getProductsByCategory(categoryId: string): Promise<Product[]> {
-    try {
-        // First try to fetch from billing system API
-        const params = new URLSearchParams({
-            components: 'api',
-            action: 'fetch_inventory_items',
-            api_key: API_KEY,
-            page: '1',
-            limit: '1000', // Increased limit to get all products
-            type: '1',
-            category: categoryId, // Pass the actual category ID
-            store: 'all',
-            sub_system: '0'
-        });
-
-        const url = `${API_BASE_URL}?${params.toString()}`;
-
-        const response = await fetch(url);
-        const data: ApiResponse = await response.json();
-
-        if (data.success && data.data) {
-            return data.data;
-        }
-        
-        return [];
-    } catch (error) {
-        console.error('Error fetching products from billing system:', error);
-        return [];
-    }
-}
+  public filterProductsByCategory(products: Product[], categoryId: string): Product[] {
+    return products.filter(product => {
+      const productCategoryId = product.category_id?.toString() || '';
+      return productCategoryId === categoryId;
+    });
+  }
 }
 
 export const categoryService = CategoryService.getInstance();
