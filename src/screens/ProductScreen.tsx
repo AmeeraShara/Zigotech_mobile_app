@@ -1,5 +1,5 @@
 // src/screens/ProductsScreen.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import {
   StatusBar,
   Image,
   Alert,
+  TextInput,
+  Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation } from '@react-navigation/native';
@@ -28,10 +30,18 @@ export default function ProductsScreen() {
   };
   
   const [products, setProducts] = useState<Product[]>([]);
+  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [quantities, setQuantities] = useState<{[key: string]: number}>({});
   const [cartItems, setCartItems] = useState<{product: Product, quantity: number}[]>([]);
+  
+  // Search states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [suggestions, setSuggestions] = useState<Product[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const searchInputRef = useRef<TextInput>(null);
 
   useEffect(() => {
     fetchProductsByCategory();
@@ -44,6 +54,7 @@ export default function ProductsScreen() {
       const filteredProducts = await categoryService.getProductsByCategory(categoryId);
       
       setProducts(filteredProducts);
+      setFilteredProducts(filteredProducts);
       
       // Initialize quantities for each product
       const initialQuantities: {[key: string]: number} = {};
@@ -57,6 +68,7 @@ export default function ProductsScreen() {
       console.error('Error fetching products:', error);
       Alert.alert('Error', 'Failed to fetch products');
       setProducts([]);
+      setFilteredProducts([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -66,6 +78,53 @@ export default function ProductsScreen() {
   const handleRefresh = () => {
     setRefreshing(true);
     fetchProductsByCategory();
+  };
+
+  // Search function
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    
+    if (query.trim() === '') {
+      setFilteredProducts(products);
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    const searchTerm = query.toLowerCase().trim();
+    
+    // Filter products based on search query
+    const filtered = products.filter(product => {
+      const code = product.code?.toLowerCase() || '';
+      const description = product.description?.toLowerCase() || '';
+      const category = categoryService.getCategoryName(product.category_id)?.toLowerCase() || '';
+      
+      return code.includes(searchTerm) || 
+             description.includes(searchTerm) || 
+             category.includes(searchTerm);
+    });
+
+    setFilteredProducts(filtered);
+    
+    // Generate suggestions (top 5 matches)
+    const suggestionList = filtered.slice(0, 5);
+    setSuggestions(suggestionList);
+    setShowSuggestions(query.length > 0 && suggestionList.length > 0);
+  };
+
+  const handleSuggestionPress = (product: Product) => {
+    setSearchQuery(product.code || product.description || '');
+    setFilteredProducts([product]);
+    setShowSuggestions(false);
+    Keyboard.dismiss();
+  };
+
+  const clearSearch = () => {
+    setSearchQuery('');
+    setFilteredProducts(products);
+    setSuggestions([]);
+    setShowSuggestions(false);
+    searchInputRef.current?.focus();
   };
 
   const updateQuantity = (productId: string, change: number) => {
@@ -141,7 +200,6 @@ export default function ProductsScreen() {
   };
 
   const renderProduct = ({ item }: { item: Product }) => {
-    // Get category name from ID
     const categoryName = categoryService.getCategoryName(item.category_id);
     const productId = item.id ? String(item.id) : '';
     const quantity = productId ? (quantities[productId] || 1) : 1;
@@ -251,6 +309,23 @@ export default function ProductsScreen() {
     );
   };
 
+  const renderSuggestion = ({ item }: { item: Product }) => (
+    <TouchableOpacity 
+      style={styles.suggestionItem}
+      onPress={() => handleSuggestionPress(item)}
+      activeOpacity={0.7}
+    >
+      <Ionicons name="search-outline" size={18} color="#666" style={styles.suggestionIcon} />
+      <View style={styles.suggestionContent}>
+        <Text style={styles.suggestionCode}>{item.code}</Text>
+        <Text style={styles.suggestionDescription} numberOfLines={1}>
+          {item.description || item.code}
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color="#ccc" />
+    </TouchableOpacity>
+  );
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -284,10 +359,74 @@ export default function ProductsScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Search Bar - With X button inside */}
+      <View style={styles.searchContainer}>
+        <View style={styles.searchBar}>
+          <Ionicons name="search-outline" size={20} color="#666" style={styles.searchIcon} />
+          <TextInput
+            ref={searchInputRef}
+            style={styles.searchInput}
+            placeholder="Search products by code or description..."
+            placeholderTextColor="#999"
+            value={searchQuery}
+            onChangeText={handleSearch}
+            onFocus={() => {
+              setIsSearching(true);
+              if (searchQuery.length > 0 && suggestions.length > 0) {
+                setShowSuggestions(true);
+              }
+            }}
+            onBlur={() => {
+              setTimeout(() => setShowSuggestions(false), 300);
+            }}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity 
+              onPress={clearSearch} 
+              style={styles.clearButton}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="close-circle" size={22} color="#999" />
+            </TouchableOpacity>
+          )}
+        </View>
+        
+        {/* Suggestions Dropdown */}
+        {showSuggestions && suggestions.length > 0 && (
+          <View style={styles.suggestionsContainer}>
+            <FlatList
+              data={suggestions}
+              renderItem={renderSuggestion}
+              keyExtractor={(item) => item.id?.toString() || Math.random().toString()}
+              style={styles.suggestionsList}
+              keyboardShouldPersistTaps="always"
+            />
+            {filteredProducts.length > 5 && (
+              <TouchableOpacity 
+                style={styles.viewAllSuggestions}
+                onPress={() => {
+                  setShowSuggestions(false);
+                  Keyboard.dismiss();
+                }}
+              >
+                <Text style={styles.viewAllText}>
+                  View all {filteredProducts.length} results
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      </View>
+
       <View style={styles.countContainer}>
         <Text style={styles.countText}>
-          {products.length} products found
+          {filteredProducts.length} products found
         </Text>
+        {searchQuery.length > 0 && (
+          <Text style={styles.searchResultText}>
+            Showing results for "{searchQuery}"
+          </Text>
+        )}
         {cartItems.length > 0 && (
           <Text style={styles.cartCountText}>
             {cartItems.length} items in cart
@@ -295,23 +434,36 @@ export default function ProductsScreen() {
         )}
       </View>
 
-      {products.length === 0 ? (
+      {filteredProducts.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Ionicons name="cube-outline" size={60} color="#ccc" />
-          <Text style={styles.emptyText}>No products found</Text>
-          <Text style={styles.emptySubText}>
-            No products available in {categoryName}
+          <Ionicons name="search-outline" size={60} color="#ccc" />
+          <Text style={styles.emptyText}>
+            {searchQuery.length > 0 ? 'No products found' : 'No products available'}
           </Text>
-          <TouchableOpacity 
-            style={styles.retryButton}
-            onPress={handleRefresh}
-          >
-            <Text style={styles.retryButtonText}>Refresh</Text>
-          </TouchableOpacity>
+          <Text style={styles.emptySubText}>
+            {searchQuery.length > 0 
+              ? `No results matching "${searchQuery}" in ${categoryName}` 
+              : `No products available in ${categoryName}`}
+          </Text>
+          {searchQuery.length > 0 ? (
+            <TouchableOpacity 
+              style={styles.retryButton}
+              onPress={clearSearch}
+            >
+              <Text style={styles.retryButtonText}>Clear Search</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity 
+              style={styles.retryButton}
+              onPress={handleRefresh}
+            >
+              <Text style={styles.retryButtonText}>Refresh</Text>
+            </TouchableOpacity>
+          )}
         </View>
       ) : (
         <FlatList
-          data={products}
+          data={filteredProducts}
           renderItem={renderProduct}
           keyExtractor={(item) => item.id?.toString() || item.code}
           numColumns={2}
@@ -320,6 +472,17 @@ export default function ProductsScreen() {
           showsVerticalScrollIndicator={false}
           refreshing={refreshing}
           onRefresh={handleRefresh}
+          ListFooterComponent={
+            searchQuery.length > 0 && filteredProducts.length > 0 ? (
+              <TouchableOpacity 
+                style={styles.clearSearchFooter}
+                onPress={clearSearch}
+              >
+                <Ionicons name="close-circle" size={16} color="#666" />
+                <Text style={styles.clearSearchText}>Clear search</Text>
+              </TouchableOpacity>
+            ) : null
+          }
         />
       )}
     </SafeAreaView>
@@ -371,16 +534,109 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: 'bold',
   },
+  // Search styles
+  searchContainer: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5E5',
+    position: 'relative',
+    zIndex: 999,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 44,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#1a1a1a',
+    paddingVertical: 8,
+    paddingHorizontal: 0,
+  },
+  clearButton: {
+    padding: 4,
+    marginLeft: 4,
+  },
+  suggestionsContainer: {
+    position: 'absolute',
+    top: 60,
+    left: 16,
+    right: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 8,
+    maxHeight: 300,
+    zIndex: 1000,
+  },
+  suggestionsList: {
+    borderRadius: 12,
+  },
+  suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  suggestionIcon: {
+    marginRight: 12,
+  },
+  suggestionContent: {
+    flex: 1,
+  },
+  suggestionCode: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1a1a1a',
+  },
+  suggestionDescription: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  viewAllSuggestions: {
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#E5E5E5',
+  },
+  viewAllText: {
+    color: '#DC2626',
+    fontWeight: '600',
+    fontSize: 14,
+  },
   countContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 8,
     backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5E5',
+    flexWrap: 'wrap',
   },
   countText: {
     fontSize: 14,
     color: '#666',
+  },
+  searchResultText: {
+    fontSize: 14,
+    color: '#DC2626',
+    fontWeight: '500',
   },
   cartCountText: {
     fontSize: 14,
@@ -559,6 +815,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginTop: 8,
+    textAlign: 'center',
   },
   retryButton: {
     marginTop: 20,
@@ -571,5 +828,16 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
     fontSize: 16,
+  },
+  clearSearchFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 8,
+  },
+  clearSearchText: {
+    color: '#666',
+    fontSize: 14,
   },
 });

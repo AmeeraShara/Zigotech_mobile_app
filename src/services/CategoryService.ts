@@ -182,11 +182,37 @@ class CategoryService {
   /**
    * Get products by category ID from API
    */
-  public async getProductsByCategory(categoryId: string): Promise<Product[]> {
-    const allProducts = await this.fetchProducts();
-    const filtered = this.filterProductsByCategory(allProducts, categoryId);
-    return filtered;
-  }
+// In CategoryService.ts - add this method
+public async getProductsByCategory(categoryId: string): Promise<Product[]> {
+    try {
+        // First try to fetch from billing system API
+        const params = new URLSearchParams({
+            components: 'api',
+            action: 'fetch_inventory_items',
+            api_key: API_KEY,
+            page: '1',
+            limit: '1000', // Increased limit to get all products
+            type: '1',
+            category: categoryId, // Pass the actual category ID
+            store: 'all',
+            sub_system: '0'
+        });
+
+        const url = `${API_BASE_URL}?${params.toString()}`;
+
+        const response = await fetch(url);
+        const data: ApiResponse = await response.json();
+
+        if (data.success && data.data) {
+            return data.data;
+        }
+        
+        return [];
+    } catch (error) {
+        console.error('Error fetching products from billing system:', error);
+        return [];
+    }
+}
 }
 
 export const categoryService = CategoryService.getInstance();
