@@ -38,7 +38,7 @@ export type ApiResponse = {
 };
 
 // API Configuration - Hardcoded
-const API_BASE_URL = 'http://localhost:8001/index.php';
+const API_BASE_URL = 'http://localhost:8002/index.php';
 const API_KEY = '2044def760224bac37860a5fab48052b1076b05865d8dfedf281155fce5ce48f';
 
 class CategoryService {

@@ -19,7 +19,7 @@ import { useRoute, useNavigation } from '@react-navigation/native';
 import { categoryService, Product } from '../services/CategoryService';
 
 // API Configuration - Hardcoded
-const API_BASE_URL = 'http://localhost:8001/index.php';
+const API_BASE_URL = 'http://localhost:8002/index.php';
 
 export default function ProductsScreen() {
   const route = useRoute();
