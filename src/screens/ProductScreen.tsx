@@ -57,6 +57,28 @@ export default function ProductsScreen() {
   const searchInputRef = useRef<TextInput>(null);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Generate a unique key for each product - FIXED to prevent duplicate keys
+  const getProductKey = (product: Product, index: number): string => {
+    // Combine multiple identifiers to ensure uniqueness
+    const id = product.id || 'no-id';
+    const code = product.code || 'no-code';
+    // Add index to guarantee uniqueness even if IDs are duplicated
+    return `product-${id}-${code}-${index}`;
+  };
+
+  // Deduplicate products function
+  const deduplicateProducts = (productsList: Product[]): Product[] => {
+    const seen = new Map();
+    return productsList.filter(product => {
+      const key = product.id ? String(product.id) : (product.code || '');
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.set(key, true);
+      return true;
+    });
+  };
+
   useEffect(() => {
     // Reset states when category changes
     setProducts([]);
@@ -90,33 +112,38 @@ export default function ProductsScreen() {
       setHasMore(more);
       setTotalItems(total);
       
+      // Deduplicate products before setting state
+      const dedupedNewProducts = deduplicateProducts(newProducts);
+      
       if (reset) {
-        setAllProducts(newProducts);
-        setProducts(newProducts);
-        setFilteredProducts(newProducts);
+        const dedupedAllProducts = deduplicateProducts(dedupedNewProducts);
+        setAllProducts(dedupedAllProducts);
+        setProducts(dedupedAllProducts);
+        setFilteredProducts(dedupedAllProducts);
         
         // Initialize quantities for each product
         const initialQuantities: {[key: string]: number} = {};
-        newProducts.forEach((product: Product) => {
+        dedupedAllProducts.forEach((product: Product) => {
           if (product.id) {
             initialQuantities[String(product.id)] = 1;
           }
         });
         setQuantities(initialQuantities);
       } else {
-        // Append new products to existing ones
-        const updatedProducts = [...allProducts, ...newProducts];
-        setAllProducts(updatedProducts);
-        setProducts(updatedProducts);
+        // Append new products to existing ones and deduplicate
+        const combinedProducts = [...allProducts, ...dedupedNewProducts];
+        const dedupedCombined = deduplicateProducts(combinedProducts);
+        setAllProducts(dedupedCombined);
+        setProducts(dedupedCombined);
         
         // Update filtered products if not searching
         if (!searchQuery.trim()) {
-          setFilteredProducts(updatedProducts);
+          setFilteredProducts(dedupedCombined);
         }
         
         // Add quantities for new products
         const newQuantities = { ...quantities };
-        newProducts.forEach((product: Product) => {
+        dedupedCombined.forEach((product: Product) => {
           if (product.id && !newQuantities[String(product.id)]) {
             newQuantities[String(product.id)] = 1;
           }
@@ -200,11 +227,14 @@ export default function ProductsScreen() {
                  category.includes(searchTerm);
         });
 
-        setSearchResults(filtered);
-        setFilteredProducts(filtered);
+        // Deduplicate search results
+        const dedupedFiltered = deduplicateProducts(filtered);
+        
+        setSearchResults(dedupedFiltered);
+        setFilteredProducts(dedupedFiltered);
         
         // Generate suggestions (top 5 matches)
-        const suggestionList = filtered.slice(0, 5);
+        const suggestionList = dedupedFiltered.slice(0, 5);
         setSuggestions(suggestionList);
         setShowSuggestions(query.length > 0 && suggestionList.length > 0);
       }
@@ -332,15 +362,6 @@ export default function ProductsScreen() {
     );
   };
 
-  // Generate a unique key for each product
-  const getProductKey = (product: Product, index: number): string => {
-    // Use id if available, otherwise fallback to code + index
-    if (product.id) {
-      return `product-${product.id}`;
-    }
-    return `product-${product.code || 'unknown'}-${index}`;
-  };
-
   const renderProduct = ({ item, index }: { item: Product; index: number }) => {
     const categoryName = categoryService.getCategoryName(item.category_id);
     const productId = item.id ? String(item.id) : '';
@@ -463,7 +484,7 @@ export default function ProductsScreen() {
       <View style={styles.suggestionContent}>
         <Text style={styles.suggestionCode}>{item.code}</Text>
         <Text style={styles.suggestionDescription} numberOfLines={1}>
-          {item.description || item.code}
+          {item.description || item.code}  {/* FIXED: Changed from image_description to description */}
         </Text>
       </View>
       <Ionicons name="chevron-forward" size={18} color="#ccc" />
@@ -504,7 +525,6 @@ export default function ProductsScreen() {
               View More 
             </Text>
           </View>
- 
         </TouchableOpacity>
       );
     }
