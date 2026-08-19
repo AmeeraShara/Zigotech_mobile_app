@@ -13,6 +13,9 @@ import {
   Alert,
   TextInput,
   Keyboard,
+  Modal,
+  ScrollView,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation } from '@react-navigation/native';
@@ -23,6 +26,7 @@ const API_BASE_URL = 'http://localhost:8002/index.php';
 const API_KEY = '2044def760224bac37860a5fab48052b1076b05865d8dfedf281155fce5ce48f';
 
 const ITEMS_PER_PAGE = 10;
+const { width, height } = Dimensions.get('window');
 
 export default function ProductsScreen() {
   const route = useRoute();
@@ -40,6 +44,11 @@ export default function ProductsScreen() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [quantities, setQuantities] = useState<{[key: string]: number}>({});
   const [cartItems, setCartItems] = useState<{product: Product, quantity: number}[]>([]);
+  
+  // Modal states
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [modalQuantity, setModalQuantity] = useState(1);
   
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -59,10 +68,8 @@ export default function ProductsScreen() {
 
   // Generate a unique key for each product - FIXED to prevent duplicate keys
   const getProductKey = (product: Product, index: number): string => {
-    // Combine multiple identifiers to ensure uniqueness
     const id = product.id || 'no-id';
     const code = product.code || 'no-code';
-    // Add index to guarantee uniqueness even if IDs are duplicated
     return `product-${id}-${code}-${index}`;
   };
 
@@ -112,7 +119,6 @@ export default function ProductsScreen() {
       setHasMore(more);
       setTotalItems(total);
       
-      // Deduplicate products before setting state
       const dedupedNewProducts = deduplicateProducts(newProducts);
       
       if (reset) {
@@ -121,7 +127,6 @@ export default function ProductsScreen() {
         setProducts(dedupedAllProducts);
         setFilteredProducts(dedupedAllProducts);
         
-        // Initialize quantities for each product
         const initialQuantities: {[key: string]: number} = {};
         dedupedAllProducts.forEach((product: Product) => {
           if (product.id) {
@@ -130,18 +135,15 @@ export default function ProductsScreen() {
         });
         setQuantities(initialQuantities);
       } else {
-        // Append new products to existing ones and deduplicate
         const combinedProducts = [...allProducts, ...dedupedNewProducts];
         const dedupedCombined = deduplicateProducts(combinedProducts);
         setAllProducts(dedupedCombined);
         setProducts(dedupedCombined);
         
-        // Update filtered products if not searching
         if (!searchQuery.trim()) {
           setFilteredProducts(dedupedCombined);
         }
         
-        // Add quantities for new products
         const newQuantities = { ...quantities };
         dedupedCombined.forEach((product: Product) => {
           if (product.id && !newQuantities[String(product.id)]) {
@@ -195,13 +197,12 @@ export default function ProductsScreen() {
     setSearchLoading(true);
     
     try {
-      // Search across all products using the API
       const params = new URLSearchParams({
         components: 'api',
         action: 'fetch_inventory_items',
         api_key: API_KEY,
         page: '1',
-        limit: '1000', // Get all products for search
+        limit: '1000',
         type: '1',
         category: categoryId,
         store: 'all',
@@ -214,8 +215,6 @@ export default function ProductsScreen() {
 
       if (data.success && data.data) {
         const allApiProducts = data.data;
-        
-        // Filter by search query
         const searchTerm = query.toLowerCase().trim();
         const filtered = allApiProducts.filter((product: Product) => {
           const code = product.code?.toLowerCase() || '';
@@ -227,13 +226,10 @@ export default function ProductsScreen() {
                  category.includes(searchTerm);
         });
 
-        // Deduplicate search results
         const dedupedFiltered = deduplicateProducts(filtered);
-        
         setSearchResults(dedupedFiltered);
         setFilteredProducts(dedupedFiltered);
         
-        // Generate suggestions (top 5 matches)
         const suggestionList = dedupedFiltered.slice(0, 5);
         setSuggestions(suggestionList);
         setShowSuggestions(query.length > 0 && suggestionList.length > 0);
@@ -245,11 +241,9 @@ export default function ProductsScreen() {
     }
   };
 
-  // Search function with debounce
   const handleSearch = (query: string) => {
     setSearchQuery(query);
     
-    // Clear previous timeout
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
@@ -262,7 +256,6 @@ export default function ProductsScreen() {
       return;
     }
 
-    // Debounce search to avoid too many API calls
     searchTimeoutRef.current = setTimeout(() => {
       searchProducts(query);
     }, 500);
@@ -293,7 +286,6 @@ export default function ProductsScreen() {
       const currentQty = prev[productId] || 1;
       const newQty = Math.max(1, currentQty + change);
       
-      // Find the product to check stock limit
       const product = allProducts.find((p: Product) => String(p.id) === productId);
       if (product && product.qty) {
         const maxStock = parseInt(product.qty.toString());
@@ -307,19 +299,18 @@ export default function ProductsScreen() {
     });
   };
 
-  const addToCart = (product: Product) => {
-    if (!product.id) return;
+  // Add to cart from modal
+  const addToCartFromModal = () => {
+    if (!selectedProduct || !selectedProduct.id) return;
     
-    const productId = String(product.id);
-    const quantity = quantities[productId] || 1;
+    const productId = String(selectedProduct.id);
+    const quantity = modalQuantity;
     
-    // Check if product already in cart
     const existingItem = cartItems.find((item: {product: Product, quantity: number}) => 
       String(item.product.id) === productId
     );
     
     if (existingItem) {
-      // Update quantity if product already in cart
       setCartItems(prevItems => 
         prevItems.map((item: {product: Product, quantity: number}) => 
           String(item.product.id) === productId 
@@ -328,7 +319,45 @@ export default function ProductsScreen() {
         )
       );
     } else {
-      // Add new product to cart
+      setCartItems(prevItems => [...prevItems, { product: selectedProduct, quantity }]);
+    }
+
+    // Update quantity in product list
+    setQuantities(prev => ({
+      ...prev,
+      [productId]: quantity
+    }));
+
+    setIsModalVisible(false);
+    Alert.alert(
+      'Added to Cart', 
+      `${selectedProduct.description || selectedProduct.code} (x${quantity}) added to cart`,
+      [
+        { text: 'Continue Shopping', style: 'cancel' },
+        { text: 'View Cart', onPress: () => navigateToCart() }
+      ]
+    );
+  };
+
+  const addToCart = (product: Product) => {
+    if (!product.id) return;
+    
+    const productId = String(product.id);
+    const quantity = quantities[productId] || 1;
+    
+    const existingItem = cartItems.find((item: {product: Product, quantity: number}) => 
+      String(item.product.id) === productId
+    );
+    
+    if (existingItem) {
+      setCartItems(prevItems => 
+        prevItems.map((item: {product: Product, quantity: number}) => 
+          String(item.product.id) === productId 
+            ? { ...item, quantity: item.quantity + quantity }
+            : item
+        )
+      );
+    } else {
       setCartItems(prevItems => [...prevItems, { product, quantity }]);
     }
 
@@ -362,6 +391,33 @@ export default function ProductsScreen() {
     );
   };
 
+  // Open product details modal
+  const openProductDetails = (product: Product) => {
+    setSelectedProduct(product);
+    const productId = product.id ? String(product.id) : '';
+    const currentQty = productId ? (quantities[productId] || 1) : 1;
+    setModalQuantity(currentQty);
+    setIsModalVisible(true);
+  };
+
+  // Close product details modal
+  const closeProductDetails = () => {
+    setIsModalVisible(false);
+    setSelectedProduct(null);
+  };
+
+  // Update quantity in modal
+  const updateModalQuantity = (change: number) => {
+    if (!selectedProduct) return;
+    const maxStock = selectedProduct.qty ? parseInt(selectedProduct.qty.toString()) : 0;
+    const newQty = Math.max(1, modalQuantity + change);
+    if (maxStock > 0 && newQty > maxStock) {
+      Alert.alert('Maximum Stock', `Only ${maxStock} units available`);
+      return;
+    }
+    setModalQuantity(newQty);
+  };
+
   const renderProduct = ({ item, index }: { item: Product; index: number }) => {
     const categoryName = categoryService.getCategoryName(item.category_id);
     const productId = item.id ? String(item.id) : '';
@@ -375,7 +431,7 @@ export default function ProductsScreen() {
       <View style={styles.productCard}>
         <TouchableOpacity 
           style={styles.productImageContainer}
-          onPress={() => {}}
+          onPress={() => openProductDetails(item)}
           activeOpacity={0.9}
         >
           {item.image_path ? (
@@ -484,21 +540,18 @@ export default function ProductsScreen() {
       <View style={styles.suggestionContent}>
         <Text style={styles.suggestionCode}>{item.code}</Text>
         <Text style={styles.suggestionDescription} numberOfLines={1}>
-          {item.description || item.code}  {/* FIXED: Changed from image_description to description */}
+          {item.description || item.code}
         </Text>
       </View>
       <Ionicons name="chevron-forward" size={18} color="#ccc" />
     </TouchableOpacity>
   );
 
-  // "View More" button footer
   const renderFooter = () => {
-    // Don't show footer when searching
     if (searchQuery.trim()) {
       return null;
     }
 
-    // If loading more, show loading indicator
     if (loadingMore) {
       return (
         <View style={styles.footerContainer}>
@@ -508,11 +561,7 @@ export default function ProductsScreen() {
       );
     }
 
-    // If there are more products to load, show "View More" button
     if (hasMore) {
-      const loadedCount = allProducts.length;
-      const remainingCount = totalItems - loadedCount;
-      
       return (
         <TouchableOpacity 
           style={styles.viewMoreButton}
@@ -529,7 +578,6 @@ export default function ProductsScreen() {
       );
     }
 
-    // If all products are loaded
     if (totalItems > 0) {
       return (
         <View style={styles.footerContainer}>
@@ -704,6 +752,165 @@ export default function ProductsScreen() {
           ListFooterComponentStyle={styles.footerContainer}
         />
       )}
+
+      {/* Product Details Modal */}
+      <Modal
+        visible={isModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={closeProductDetails}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {/* Header */}
+            <View style={styles.modalHeader}>
+              <TouchableOpacity onPress={closeProductDetails} style={styles.modalCloseButton}>
+                <Ionicons name="close" size={28} color="#1a1a1a" />
+              </TouchableOpacity>
+              <Text style={styles.modalTitle}>Product Details</Text>
+              <View style={styles.modalHeaderSpacer} />
+            </View>
+
+            {selectedProduct && (
+              <ScrollView showsVerticalScrollIndicator={false} style={styles.modalBody}>
+                {/* Product Image */}
+                <View style={styles.modalImageContainer}>
+                  {selectedProduct.image_path ? (
+                    <Image 
+                      source={{ uri: `${API_BASE_URL}/../${selectedProduct.image_path}` }} 
+                      style={styles.modalImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={styles.modalImagePlaceholder}>
+                      <Ionicons name="image-outline" size={80} color="#ddd" />
+                    </View>
+                  )}
+                </View>
+
+                {/* Product Info */}
+                <View style={styles.modalProductInfo}>
+                  <Text style={styles.modalProductCode}>{selectedProduct.code}</Text>
+                  <Text style={styles.modalProductName}>
+                    {selectedProduct.description || selectedProduct.code}
+                  </Text>
+                  
+                  <View style={styles.modalPriceRow}>
+                    <Text style={styles.modalProductPrice}>
+                      RS. {parseFloat(selectedProduct.r_price?.toString() || '0').toFixed(2)}
+                    </Text>
+                    <View style={styles.modalCategoryTag}>
+                      <Text style={styles.modalCategoryTagText}>
+                        {categoryService.getCategoryName(selectedProduct.category_id)}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Stock Info */}
+                  <View style={styles.modalStockContainer}>
+                    <Ionicons 
+                      name={parseInt(selectedProduct.qty?.toString() || '0') > 0 ? "checkmark-circle" : "warning"} 
+                      size={20} 
+                      color={parseInt(selectedProduct.qty?.toString() || '0') > 0 ? "#22C55E" : "#EF4444"} 
+                    />
+                    <Text style={[
+                      styles.modalStockText,
+                      parseInt(selectedProduct.qty?.toString() || '0') > 0 ? styles.inStock : styles.outOfStock
+                    ]}>
+                      {parseInt(selectedProduct.qty?.toString() || '0') > 0 
+                        ? `In Stock (${selectedProduct.qty} units available)` 
+                        : 'Out of Stock'}
+                    </Text>
+                  </View>
+
+                  {/* Quantity Selector */}
+                  <View style={styles.modalQuantitySection}>
+                    <Text style={styles.modalQuantityLabel}>Quantity:</Text>
+                    <View style={styles.modalQuantityContainer}>
+                      <TouchableOpacity 
+                        style={styles.modalQuantityButton}
+                        onPress={() => updateModalQuantity(-1)}
+                        disabled={modalQuantity <= 1}
+                      >
+                        <Ionicons 
+                          name="remove" 
+                          size={24} 
+                          color={modalQuantity <= 1 ? '#ccc' : '#DC2626'} 
+                        />
+                      </TouchableOpacity>
+                      
+                      <Text style={styles.modalQuantityText}>{modalQuantity}</Text>
+                      
+                      <TouchableOpacity 
+                        style={styles.modalQuantityButton}
+                        onPress={() => updateModalQuantity(1)}
+                        disabled={
+                          parseInt(selectedProduct.qty?.toString() || '0') > 0 && 
+                          modalQuantity >= parseInt(selectedProduct.qty?.toString() || '0')
+                        }
+                      >
+                        <Ionicons 
+                          name="add" 
+                          size={24} 
+                          color={
+                            (parseInt(selectedProduct.qty?.toString() || '0') > 0 && 
+                            modalQuantity >= parseInt(selectedProduct.qty?.toString() || '0')) 
+                              ? '#ccc' 
+                              : '#DC2626'
+                          } 
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* Additional Info - Using any type assertion for optional properties */}
+                  {selectedProduct && (selectedProduct as any).rack && (
+                    <View style={styles.modalAdditionalInfo}>
+                      <Text style={styles.modalAdditionalLabel}>Rack Location:</Text>
+                      <Text style={styles.modalAdditionalValue}>{(selectedProduct as any).rack}</Text>
+                    </View>
+                  )}
+                  
+                  {selectedProduct && (selectedProduct as any).status && (
+                    <View style={styles.modalAdditionalInfo}>
+                      <Text style={styles.modalAdditionalLabel}>Status:</Text>
+                      <Text style={styles.modalAdditionalValue}>{(selectedProduct as any).status}</Text>
+                    </View>
+                  )}
+
+                  {/* Action Buttons */}
+                  <View style={styles.modalActionContainer}>
+                    <TouchableOpacity 
+                      style={[styles.modalCancelButton]}
+                      onPress={closeProductDetails}
+                    >
+                      <Text style={styles.modalCancelButtonText}>Close</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                      style={[
+                        styles.modalAddToCartButton,
+                        parseInt(selectedProduct.qty?.toString() || '0') === 0 && styles.modalOutOfStockButton
+                      ]}
+                      onPress={addToCartFromModal}
+                      disabled={parseInt(selectedProduct.qty?.toString() || '0') === 0}
+                    >
+                      <Ionicons 
+                        name={parseInt(selectedProduct.qty?.toString() || '0') === 0 ? "ban" : "cart-outline"} 
+                        size={20} 
+                        color="#fff" 
+                      />
+                      <Text style={styles.modalAddToCartText}>
+                        {parseInt(selectedProduct.qty?.toString() || '0') === 0 ? 'Out of Stock' : 'Add to Cart'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1101,5 +1308,206 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     marginTop: 8,
+  },
+
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: height * 0.9,
+    minHeight: height * 0.5,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5E5',
+  },
+  modalCloseButton: {
+    padding: 4,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1a1a1a',
+  },
+  modalHeaderSpacer: {
+    width: 36,
+  },
+  modalBody: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  modalImageContainer: {
+    width: '100%',
+    height: 250,
+    backgroundColor: '#F8F8F8',
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  modalImage: {
+    width: '100%',
+    height: '100%',
+  },
+  modalImagePlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F8F8F8',
+  },
+  modalProductInfo: {
+    paddingBottom: 24,
+  },
+  modalProductCode: {
+    fontSize: 13,
+    color: '#999',
+    marginBottom: 4,
+  },
+  modalProductName: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1a1a1a',
+    marginBottom: 8,
+  },
+  modalPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  modalProductPrice: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#DC2626',
+  },
+  modalCategoryTag: {
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  modalCategoryTagText: {
+    fontSize: 12,
+    color: '#DC2626',
+    fontWeight: '600',
+  },
+  modalStockContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+  },
+  modalStockText: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
+  inStock: {
+    color: '#22C55E',
+  },
+  outOfStock: {
+    color: '#EF4444',
+  },
+  modalQuantitySection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    padding: 12,
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+  },
+  modalQuantityLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1a1a1a',
+  },
+  modalQuantityContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E5E5',
+  },
+  modalQuantityButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalQuantityText: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    minWidth: 40,
+    textAlign: 'center',
+  },
+  modalAdditionalInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  modalAdditionalLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
+  modalAdditionalValue: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1a1a1a',
+  },
+  modalActionContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E5E5',
+  },
+  modalCancelButton: {
+    flex: 1,
+    backgroundColor: '#F3F4F6',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  modalCancelButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+  },
+  modalAddToCartButton: {
+    flex: 2,
+    backgroundColor: '#DC2626',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  modalOutOfStockButton: {
+    backgroundColor: '#9CA3AF',
+  },
+  modalAddToCartText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
   },
 });
